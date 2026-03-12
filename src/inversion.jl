@@ -140,7 +140,12 @@ end
     run_fwi(config, obs_data, src_waveform, eps_inf_init, deps_map, tau_map,
             sigma_init, param_mask; max_iter, param_type, use_ad, verbose)
 
-Run full-waveform inversion using L-BFGS optimization.
+Run a minimal single-source full-waveform inversion using L-BFGS.
+
+This helper optimizes only the data misfit returned by `forward_misfit`.
+It does not add Tikhonov regularization or projected parameter bounds.
+The manuscript-level inversion workflow and archived paper figures use
+`run_fwi_multisource` via the example drivers under `GPRADFWI.jl/examples/`.
 
 # Arguments
 - `config`: FDTD configuration
@@ -185,6 +190,7 @@ function run_fwi(config::FDTDConfig,
     if verbose
         @printf("FWI: %d parameters, max %d iterations, param_type=%s\n",
                 length(x0), max_iter, param_type)
+        println("  Note: run_fwi is the minimal single-source helper; paper results use run_fwi_multisource with regularization and bounds.")
     end
 
     # Track convergence and per-iteration diagnostics
@@ -395,6 +401,10 @@ Run multi-source full-waveform inversion using L-BFGS optimization.
 Each source position has its own FDTDConfig and observed data. The total misfit
 is the sum over all sources, and gradients are accumulated per-source to keep
 peak memory at single-source level.
+
+This is the bounded/regularized driver used by the paper example scripts,
+including `run_fwi_large_domain.jl`, `run_fwi_joint.jl`,
+`run_fwi_noisy_multiseed.jl`, and `run_fwi_uncertainty.jl`.
 
 # Arguments
 - `configs`: vector of FDTDConfig (one per source position)

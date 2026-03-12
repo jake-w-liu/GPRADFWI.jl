@@ -41,7 +41,7 @@ struct CPMLParams
     npml::Int          # number of PML cells
     order::Int         # polynomial grading order
     kappa_max::Float64 # maximum stretching factor
-    alpha_max::Float64 # maximum CFS alpha
+    alpha_max::Float64 # maximum CFS alpha [S/m] in the normalized CPML convention
     sigma_fac::Float64 # sigma scaling factor relative to optimal
 end
 

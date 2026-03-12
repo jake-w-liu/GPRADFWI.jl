@@ -1,6 +1,8 @@
 # cpml.jl — Convolutional Perfectly Matched Layer (CPML) for 2D TM-mode FDTD
 #
-# CPML stretching: s_i = κ_i + σ_i / (α_i + iω)
+# CPML stretching (normalized form used by the implementation):
+#   s_i(ω) = κ_i + σ_i / (α_i + iωε₀)
+# so σ_i and α_i both carry conductivity units [S/m].
 # Implemented via auxiliary recursive convolution variables ψ.
 
 """

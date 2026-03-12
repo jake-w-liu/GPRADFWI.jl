@@ -225,6 +225,77 @@
         @test !isapprox(rec_nd, rec_d; rtol=0.01)  # must differ by > 1%
     end
 
+    @testset "CPML kappa scaling is applied in field updates" begin
+        config = small_config(nx=20, ny=20, npml=4, nt=1)
+        nx, ny = config.nx, config.ny
+        ch_dt_dx = config.dt / (GPRADFWI.mu0 * config.dx)
+        ch_dt_dy = config.dt / (GPRADFWI.mu0 * config.dy)
+
+        cpml_h_ref = GPRADFWI.init_cpml(config)
+        cpml_h_kap = GPRADFWI.init_cpml(config)
+        for cp in (cpml_h_ref, cpml_h_kap)
+            cp.bh_x .= 0.0
+            cp.ch_x .= 0.0
+            cp.bh_y .= 0.0
+            cp.ch_y .= 0.0
+            cp.kappa_hx .= 1.0
+            cp.kappa_hy .= 1.0
+            cp.psi_hyx_x1 .= 0.0
+            cp.psi_hyx_x2 .= 0.0
+            cp.psi_hxy_y1 .= 0.0
+            cp.psi_hxy_y2 .= 0.0
+        end
+        cpml_h_kap.kappa_hy[1] = 4.0
+
+        Ez = zeros(nx, ny)
+        Ez[:, 2] .= 1.0
+
+        Hx_ref = zeros(nx, ny); Hy_ref = zeros(nx, ny)
+        Hx_kap = zeros(nx, ny); Hy_kap = zeros(nx, ny)
+
+        GPRADFWI._update_H!(Hx_ref, Hy_ref, Ez, ch_dt_dx, ch_dt_dy, cpml_h_ref, nx, ny)
+        GPRADFWI._update_H!(Hx_kap, Hy_kap, Ez, ch_dt_dx, ch_dt_dy, cpml_h_kap, nx, ny)
+
+        # Boundary update magnitude must be reduced by 1/κ in y-directed Hx update.
+        @test isapprox(Hx_kap[5, 1], Hx_ref[5, 1] / 4.0; rtol=1e-14, atol=0.0)
+        # Interior rows (κ=1) remain unchanged.
+        @test isapprox(Hx_kap[5, 2], Hx_ref[5, 2]; rtol=1e-14, atol=0.0)
+
+        cpml_e_ref = GPRADFWI.init_cpml(config)
+        cpml_e_kap = GPRADFWI.init_cpml(config)
+        for cp in (cpml_e_ref, cpml_e_kap)
+            cp.be_x .= 0.0
+            cp.ce_x .= 0.0
+            cp.be_y .= 0.0
+            cp.ce_y .= 0.0
+            cp.kappa_ex .= 1.0
+            cp.kappa_ey .= 1.0
+            cp.psi_ezx_x1 .= 0.0
+            cp.psi_ezx_x2 .= 0.0
+            cp.psi_ezy_y1 .= 0.0
+            cp.psi_ezy_y2 .= 0.0
+        end
+        cpml_e_kap.kappa_ex[2] = 5.0
+
+        eps_inf = fill(4.0, nx, ny)
+        deps = zeros(nx, ny)
+        tau = zeros(nx, ny)
+        sigma = fill(0.001, nx, ny)
+        dc = GPRADFWI.init_debye_coeffs(eps_inf, deps, tau, sigma, config.dt, nx, ny)
+
+        Ez_ref = zeros(nx, ny); Ez_kap = zeros(nx, ny)
+        Hx = zeros(nx, ny); Hy = zeros(nx, ny); Pz = zeros(nx, ny)
+        Hy[2, 2] = 1.0
+
+        GPRADFWI._update_E_debye!(Ez_ref, Hx, Hy, Pz, dc, cpml_e_ref, config.dt, config.dx, config.dy, nx, ny)
+
+        Hx2 = zeros(nx, ny); Hy2 = copy(Hy); Pz2 = zeros(nx, ny)
+        GPRADFWI._update_E_debye!(Ez_kap, Hx2, Hy2, Pz2, dc, cpml_e_kap, config.dt, config.dx, config.dy, nx, ny)
+
+        # x-directed curl contribution at i=2 must scale by 1/κ_ex.
+        @test isapprox(Ez_kap[2, 2], Ez_ref[2, 2] / 5.0; rtol=1e-14, atol=0.0)
+    end
+
     # ── Category E: Error handling ────────────────────────────────────────
 
     @testset "Dimension assertion on material maps" begin

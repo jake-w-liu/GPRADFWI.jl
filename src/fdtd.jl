@@ -96,42 +96,40 @@ Hx^{n+1/2} = Hx^{n-1/2} - dt/(μ₀) * ∂Ez/∂y
 Hy^{n+1/2} = Hy^{n-1/2} + dt/(μ₀) * ∂Ez/∂x
 """
 function _update_H!(Hx, Hy, Ez, ch_dt_dx, ch_dt_dy, cpml, nx, ny)
-    npml = length(cpml.be_x) > 0 ? count(cpml.be_x .!= 0.0) ÷ 2 : 0
-
     # Hx update: Hx(i,j) uses Ez(i,j) and Ez(i,j+1)
     for j in 1:ny-1, i in 1:nx
-        dEz_dy = (Ez[i, j+1] - Ez[i, j]) / 1.0  # normalized by dy below
-        Hx[i, j] -= ch_dt_dy * dEz_dy
+        dEz = Ez[i, j+1] - Ez[i, j]  # raw Yee-grid difference (normalization via ch_dt_dy)
+        Hx[i, j] -= ch_dt_dy * (dEz / cpml.kappa_hy[j])
 
         # CPML y-boundaries
         if j <= size(cpml.psi_hxy_y1, 2)
             cpml.psi_hxy_y1[i, j] = cpml.bh_y[j] * cpml.psi_hxy_y1[i, j] +
-                                     cpml.ch_y[j] * dEz_dy
+                                     cpml.ch_y[j] * dEz
             Hx[i, j] -= ch_dt_dy * cpml.psi_hxy_y1[i, j]
         end
         jj = j - (ny - size(cpml.psi_hxy_y2, 2))
         if jj >= 1 && jj <= size(cpml.psi_hxy_y2, 2)
             cpml.psi_hxy_y2[i, jj] = cpml.bh_y[j] * cpml.psi_hxy_y2[i, jj] +
-                                       cpml.ch_y[j] * dEz_dy
+                                       cpml.ch_y[j] * dEz
             Hx[i, j] -= ch_dt_dy * cpml.psi_hxy_y2[i, jj]
         end
     end
 
     # Hy update: Hy(i,j) uses Ez(i+1,j) and Ez(i,j)
     for j in 1:ny, i in 1:nx-1
-        dEz_dx = (Ez[i+1, j] - Ez[i, j]) / 1.0
-        Hy[i, j] += ch_dt_dx * dEz_dx
+        dEz = Ez[i+1, j] - Ez[i, j]
+        Hy[i, j] += ch_dt_dx * (dEz / cpml.kappa_hx[i])
 
         # CPML x-boundaries
         if i <= size(cpml.psi_hyx_x1, 1)
             cpml.psi_hyx_x1[i, j] = cpml.bh_x[i] * cpml.psi_hyx_x1[i, j] +
-                                      cpml.ch_x[i] * dEz_dx
+                                      cpml.ch_x[i] * dEz
             Hy[i, j] += ch_dt_dx * cpml.psi_hyx_x1[i, j]
         end
         ii = i - (nx - size(cpml.psi_hyx_x2, 1))
         if ii >= 1 && ii <= size(cpml.psi_hyx_x2, 1)
             cpml.psi_hyx_x2[ii, j] = cpml.bh_x[i] * cpml.psi_hyx_x2[ii, j] +
-                                       cpml.ch_x[i] * dEz_dx
+                                       cpml.ch_x[i] * dEz
             Hy[i, j] += ch_dt_dx * cpml.psi_hyx_x2[ii, j]
         end
     end
@@ -147,40 +145,36 @@ Combined update:
 function _update_E_debye!(Ez, Hx, Hy, Pz, dc::DebyeCoeffs, cpml, dt, dx, dy, nx, ny)
     for j in 2:ny-1, i in 2:nx-1
         # Curl H (finite differences on Yee grid)
-        dHy_dx = (Hy[i, j] - Hy[i-1, j]) / dx
-        dHx_dy = (Hx[i, j] - Hx[i, j-1]) / dy
-        curl_H = dHy_dx - dHx_dy
+        dHy = Hy[i, j] - Hy[i-1, j]
+        dHx = Hx[i, j] - Hx[i, j-1]
+        curl_H = dHy / (cpml.kappa_ex[i] * dx) - dHx / (cpml.kappa_ey[j] * dy)
 
         # CPML corrections for curl_H
         curl_H_cpml = 0.0
 
         # x-direction CPML
         if i <= size(cpml.psi_ezx_x1, 1)
-            dH = (Hy[i, j] - Hy[i-1, j]) / dx
             cpml.psi_ezx_x1[i, j] = cpml.be_x[i] * cpml.psi_ezx_x1[i, j] +
-                                      cpml.ce_x[i] * dH * dx  # un-normalize for psi
+                                      cpml.ce_x[i] * dHy
             curl_H_cpml += cpml.psi_ezx_x1[i, j] / dx
         end
         ii = i - (nx - size(cpml.psi_ezx_x2, 1))
         if ii >= 1 && ii <= size(cpml.psi_ezx_x2, 1)
-            dH = (Hy[i, j] - Hy[i-1, j]) / dx
             cpml.psi_ezx_x2[ii, j] = cpml.be_x[i] * cpml.psi_ezx_x2[ii, j] +
-                                       cpml.ce_x[i] * dH * dx
+                                       cpml.ce_x[i] * dHy
             curl_H_cpml += cpml.psi_ezx_x2[ii, j] / dx
         end
 
         # y-direction CPML
         if j <= size(cpml.psi_ezy_y1, 2)
-            dH = (Hx[i, j] - Hx[i, j-1]) / dy
             cpml.psi_ezy_y1[i, j] = cpml.be_y[j] * cpml.psi_ezy_y1[i, j] +
-                                      cpml.ce_y[j] * dH * dy
+                                      cpml.ce_y[j] * dHx
             curl_H_cpml -= cpml.psi_ezy_y1[i, j] / dy
         end
         jj = j - (ny - size(cpml.psi_ezy_y2, 2))
         if jj >= 1 && jj <= size(cpml.psi_ezy_y2, 2)
-            dH_y2 = (Hx[i, j] - Hx[i, j-1]) / dy
             cpml.psi_ezy_y2[i, jj] = cpml.be_y[j] * cpml.psi_ezy_y2[i, jj] +
-                                       cpml.ce_y[j] * dH_y2 * dy
+                                       cpml.ce_y[j] * dHx
             curl_H_cpml -= cpml.psi_ezy_y2[i, jj] / dy
         end
 
