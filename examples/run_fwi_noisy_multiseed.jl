@@ -1,17 +1,14 @@
 # run_fwi_noisy_multiseed.jl
-# Multi-seed noise robustness statistics for revision item M2.
+# Multi-seed noise robustness study with strict comparability to Fig. 7 setup.
 
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 Pkg.instantiate()
 
-using DelimitedFiles
+using GPRADFWI
 using Printf
 using Random
 using Statistics
-using GPRADFWI
-
-include(joinpath(@__DIR__, "revision_reduced_common.jl"))
 
 const DATADIR = joinpath(@__DIR__, "..", "..", "paper", "data")
 mkpath(DATADIR)
@@ -23,30 +20,182 @@ function add_noise_to_data(clean_data::Matrix{Float64}, snr_db::Int)
     noise = noise_std .* randn(size(clean_data))
     noisy = clean_data .+ noise
     actual_snr = 10.0 * log10(signal_power / sum(noise .^ 2))
-    return noisy, actual_snr, noise_std
+    return noisy, actual_snr
+end
+
+function build_full_domain_context()
+    domain_x = 1.0
+    domain_y = 0.85
+    grid_dx = 0.005
+    fc_gpr = 500e6
+
+    nx = round(Int, domain_x / grid_dx)
+    ny = round(Int, domain_y / grid_dx)
+    npml = 10
+
+    rx_y = npml + 10
+    rx_x_list = collect((npml + 3):4:(nx - npml - 3))
+
+    src_x_list = [30, 65, 100, 135, 170]
+    nsrc = length(src_x_list)
+
+    configs = FDTDConfig[]
+    src_waveforms = Vector{Float64}[]
+    for sx in src_x_list
+        cfg = create_config(
+            nx=nx, ny=ny, dx=grid_dx, fc=fc_gpr, npml=npml,
+            src_ix=sx, src_iy=rx_y,
+            rx_iy=rx_y, rx_ix_list=rx_x_list,
+        )
+        push!(configs, cfg)
+        push!(src_waveforms, create_source(cfg))
+    end
+
+    eps_inf_true = ones(nx, ny)
+    deps_true = zeros(nx, ny)
+    tau_true = zeros(nx, ny)
+    sigma_true = zeros(nx, ny)
+
+    surface_j = npml + 15
+    layer1_top = surface_j
+    layer1_bot = surface_j + round(Int, 0.6 / grid_dx)
+
+    for j in layer1_top:min(layer1_bot, ny), i in 1:nx
+        eps_inf_true[i, j] = 4.0
+        deps_true[i, j] = 4.0
+        tau_true[i, j] = 0.3e-9
+        sigma_true[i, j] = 0.005
+    end
+
+    layer2_top = layer1_bot + 1
+    for j in layer2_top:ny, i in 1:nx
+        eps_inf_true[i, j] = 6.0
+        deps_true[i, j] = 12.0
+        tau_true[i, j] = 1.0e-9
+        sigma_true[i, j] = 0.02
+    end
+
+    pipe_cx = nx ÷ 2
+    pipe_cy = surface_j + round(Int, 0.4 / grid_dx)
+    pipe_r = round(Int, 0.05 / grid_dx)
+
+    for j in 1:ny, i in 1:nx
+        if (i - pipe_cx)^2 + (j - pipe_cy)^2 <= pipe_r^2
+            eps_inf_true[i, j] = 15.0
+            deps_true[i, j] = 10.0
+            tau_true[i, j] = 0.5e-9
+            sigma_true[i, j] = 0.001
+        end
+    end
+
+    inv_x_lo = pipe_cx - 25
+    inv_x_hi = pipe_cx + 25
+    inv_y_lo = pipe_cy - 20
+    inv_y_hi = pipe_cy + 20
+
+    param_mask = falses(nx, ny)
+    for j in inv_y_lo:inv_y_hi, i in inv_x_lo:inv_x_hi
+        param_mask[i, j] = true
+    end
+
+    obs_datas_clean = Matrix{Float64}[]
+    for k in 1:nsrc
+        od = run_forward!(configs[k], eps_inf_true, deps_true, tau_true, sigma_true, src_waveforms[k])
+        push!(obs_datas_clean, od)
+    end
+
+    return (
+        nx=nx,
+        ny=ny,
+        grid_dx=grid_dx,
+        configs=configs,
+        src_waveforms=src_waveforms,
+        eps_inf_true=eps_inf_true,
+        deps_true=deps_true,
+        tau_true=tau_true,
+        sigma_true=sigma_true,
+        surface_j=surface_j,
+        layer1_top=layer1_top,
+        layer1_bot=layer1_bot,
+        layer2_top=layer2_top,
+        pipe_cx=pipe_cx,
+        inv_x_lo=inv_x_lo,
+        inv_x_hi=inv_x_hi,
+        inv_y_lo=inv_y_lo,
+        inv_y_hi=inv_y_hi,
+        param_mask=param_mask,
+        n_params=count(param_mask),
+        obs_datas_clean=obs_datas_clean,
+    )
+end
+
+function build_initial_model(ctx)
+    nx, ny = ctx.nx, ctx.ny
+
+    eps_inf = ones(nx, ny)
+    deps = zeros(nx, ny)
+    tau = zeros(nx, ny)
+    sigma = zeros(nx, ny)
+
+    for j in ctx.layer1_top:min(ctx.layer1_bot, ny), i in 1:nx
+        eps_inf[i, j] = 4.0
+        deps[i, j] = 4.0
+        tau[i, j] = 0.3e-9
+        sigma[i, j] = 0.005
+    end
+    for j in ctx.layer2_top:ny, i in 1:nx
+        eps_inf[i, j] = 6.0
+        deps[i, j] = 12.0
+        tau[i, j] = 1.0e-9
+        sigma[i, j] = 0.02
+    end
+
+    return eps_inf, deps, tau, sigma
 end
 
 function centerline_profile(ctx, eps_est::Matrix{Float64})
-    prof = Float64[]
+    profile = Float64[]
     for j in ctx.inv_y_lo:ctx.inv_y_hi
-        push!(prof, eps_est[ctx.pipe_cx, j])
+        push!(profile, eps_est[ctx.pipe_cx, j])
     end
-    return prof
+    return profile
+end
+
+function compute_region_metrics(ctx, eps_est::Matrix{Float64})
+    eps_true_region = Float64[]
+    eps_est_region = Float64[]
+    for j in ctx.inv_y_lo:ctx.inv_y_hi, i in ctx.inv_x_lo:ctx.inv_x_hi
+        push!(eps_true_region, ctx.eps_inf_true[i, j])
+        push!(eps_est_region, eps_est[i, j])
+    end
+
+    rmse = sqrt(mean((eps_true_region .- eps_est_region) .^ 2))
+    peak_true = maximum(ctx.eps_inf_true[ctx.inv_x_lo:ctx.inv_x_hi, ctx.inv_y_lo:ctx.inv_y_hi])
+    peak_est = maximum(eps_est[ctx.inv_x_lo:ctx.inv_x_hi, ctx.inv_y_lo:ctx.inv_y_hi])
+    recovery = 100.0 * peak_est / peak_true
+    return rmse, peak_true, peak_est, recovery
+end
+
+function save_convergence_csv(path::String, result; header::String="")
+    open(path, "w") do io
+        if !isempty(header)
+            write(io, "# $header\n")
+        end
+        write(io, "iteration,loss,grad_norm\n")
+        for k in eachindex(result.loss_history)
+            @printf(io, "%d,%.12e,%.12e\n", k - 1, result.loss_history[k], result.grad_norm_history[k])
+        end
+    end
 end
 
 function main()
     Random.seed!(20260303)
 
-    println("Building reduced-domain context for multi-seed noise study...")
-    ctx = build_reduced_multisource_context()
-    @printf("  Domain: %d x %d, nt=%d\n", ctx.nx, ctx.ny, ctx.configs[1].nt)
+    println("Building full-domain context (identical to Fig. 7 setup)...")
+    ctx = build_full_domain_context()
+    @printf("  Domain: %d x %d\n", ctx.nx, ctx.ny)
     @printf("  Sources: %d, parameters: %d\n", length(ctx.configs), ctx.n_params)
     flush(stdout)
-
-    src_sel = [1, 2]  # speed-oriented Monte Carlo setup
-    configs = ctx.configs[src_sel]
-    src_waveforms = ctx.src_waveforms[src_sel]
-    obs_clean = ctx.obs_datas_clean[src_sel]
 
     eps_init, deps_init, tau_init, sigma_init = build_initial_model(ctx)
 
@@ -56,9 +205,9 @@ function main()
 
     println("Running clean reference inversion...")
     clean_result = run_fwi_multisource(
-        configs,
-        obs_clean,
-        src_waveforms,
+        ctx.configs,
+        ctx.obs_datas_clean,
+        ctx.src_waveforms,
         eps_init,
         deps_init,
         tau_init,
@@ -79,7 +228,7 @@ function main()
 
     clean_conv_file = joinpath(DATADIR, "fwi_noisy_multiseed_clean_convergence.csv")
     save_convergence_csv(clean_conv_file, clean_result;
-        header="Reduced-domain clean reference, max_iter=$(max_iter)")
+        header="Full-domain clean reference (Fig. 7 setup), max_iter=$(max_iter)")
 
     records = NamedTuple[]
     summary_rows = NamedTuple[]
@@ -108,18 +257,18 @@ function main()
 
             obs_noisy = Matrix{Float64}[]
             actual_snr_acc = 0.0
-            for k in eachindex(obs_clean)
-                dn, actual_snr, _ = add_noise_to_data(obs_clean[k], snr_db)
+            for k in eachindex(ctx.obs_datas_clean)
+                dn, actual_snr = add_noise_to_data(ctx.obs_datas_clean[k], snr_db)
                 push!(obs_noisy, dn)
                 actual_snr_acc += actual_snr
             end
-            snr_actual = actual_snr_acc / length(obs_clean)
+            snr_actual = actual_snr_acc / length(ctx.obs_datas_clean)
 
             t0 = time()
             result = run_fwi_multisource(
-                configs,
+                ctx.configs,
                 obs_noisy,
-                src_waveforms,
+                ctx.src_waveforms,
                 eps_init,
                 deps_init,
                 tau_init,
@@ -188,14 +337,14 @@ function main()
             push!(convergence_rows, (
                 snr_db=snr_db,
                 iteration=iter,
-                loss_mean=mean(loss_mat[:, iter+1]),
-                loss_std=std(loss_mat[:, iter+1]),
+                loss_mean=mean(loss_mat[:, iter + 1]),
+                loss_std=std(loss_mat[:, iter + 1]),
             ))
         end
 
         recon_stat_file = joinpath(DATADIR, "fwi_noisy_multiseed_reconstruction_stats_snr$(snr_db)db.csv")
         open(recon_stat_file, "w") do io
-            write(io, "# Multi-seed reconstruction stats, SNR=$(snr_db)dB, n_seeds=$(n_seeds)\n")
+            write(io, "# Multi-seed reconstruction stats, full-domain setup, SNR=$(snr_db)dB, n_seeds=$(n_seeds)\n")
             write(io, "depth_cm,eps_true,eps_initial,eps_clean,eps_mean,eps_std\n")
             for (idx, j) in enumerate(ctx.inv_y_lo:ctx.inv_y_hi)
                 depth_cm = (j - ctx.surface_j) * ctx.grid_dx * 100.0
@@ -213,7 +362,7 @@ function main()
 
     records_file = joinpath(DATADIR, "fwi_noisy_multiseed_records.csv")
     open(records_file, "w") do io
-        write(io, "# Multi-seed noisy FWI records\n")
+        write(io, "# Multi-seed noisy FWI records (full-domain setup)\n")
         write(io, "snr_db,seed_id,snr_actual_db,runtime_s,loss_initial,loss_final,loss_reduction_pct,rmse,peak_true,peak_est,peak_recovery_pct\n")
         for r in records
             @printf(io, "%d,%d,%.6f,%.6f,%.12e,%.12e,%.6f,%.6f,%.6f,%.6f,%.6f\n",
@@ -225,7 +374,7 @@ function main()
 
     summary_file = joinpath(DATADIR, "fwi_noisy_multiseed_summary.csv")
     open(summary_file, "w") do io
-        write(io, "# Multi-seed noisy FWI summary by SNR\n")
+        write(io, "# Multi-seed noisy FWI summary by SNR (full-domain setup)\n")
         write(io, "snr_db,n_seeds,snr_actual_mean,snr_actual_std,runtime_mean,runtime_std,rmse_mean,rmse_std,peak_mean,peak_std,recovery_mean,recovery_std,reduction_mean,reduction_std,clean_peak_true\n")
         for r in summary_rows
             @printf(io, "%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
@@ -244,7 +393,7 @@ function main()
 
     conv_stats_file = joinpath(DATADIR, "fwi_noisy_multiseed_convergence_stats.csv")
     open(conv_stats_file, "w") do io
-        write(io, "# Multi-seed convergence statistics (mean/std)\n")
+        write(io, "# Multi-seed convergence statistics (mean/std, full-domain setup)\n")
         write(io, "snr_db,iteration,loss_mean,loss_std\n")
         for r in convergence_rows
             @printf(io, "%d,%d,%.12e,%.12e\n", r.snr_db, r.iteration, r.loss_mean, r.loss_std)

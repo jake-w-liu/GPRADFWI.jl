@@ -374,7 +374,7 @@ function main()
     summary_file = joinpath(DATADIR, "hand_adjoint_summary.csv")
     open(summary_file, "w") do io
         write(io, "# Reduced-domain hand-adjoint baseline summary\n")
-        write(io, "metric,value\n")
+        write(io, "metric_name,value_si\n")
         @printf(io, "n_params,%d\n", n_params)
         @printf(io, "misfit_initial,%.12e\n", 0.5 * sum((syn .- ctx.obs_data) .^ 2))
         @printf(io, "max_relerr_ad_vs_hand,%.12e\n", m_ad_hand.max_rel)

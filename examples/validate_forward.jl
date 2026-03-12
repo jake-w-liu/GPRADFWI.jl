@@ -180,7 +180,7 @@ println("Material profile saved to: $mat_file")
 summary_file = joinpath(datadir, "validation_data.csv")
 open(summary_file, "w") do io
     write(io, "# Validation summary: forward solver, seed=42\n")
-    write(io, "metric,value,unit\n")
+    write(io, "metric_name,value_si,unit\n")
     @printf(io, "domain_x_m,%.4f,m\n", domain_x)
     @printf(io, "domain_y_m,%.4f,m\n", domain_y)
     @printf(io, "grid_dx_mm,%.2f,mm\n", grid_dx * 1e3)
@@ -192,8 +192,8 @@ open(summary_file, "w") do io
     @printf(io, "n_receivers,%d,count\n", length(rx_x_list))
     @printf(io, "max_ez_vm,%.6e,V/m\n", max_ez)
     @printf(io, "runtime_s,%.2f,s\n", t_elapsed)
-    @printf(io, "any_nan,%s,bool\n", any_nan)
-    @printf(io, "any_inf,%s,bool\n", any_inf)
+    @printf(io, "has_missing_flag,%s,bool\n", any_nan)
+    @printf(io, "has_inf_flag,%s,bool\n", any_inf)
 end
 println("Summary saved to: $summary_file")
 

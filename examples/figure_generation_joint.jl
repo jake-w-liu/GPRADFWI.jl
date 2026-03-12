@@ -15,7 +15,11 @@ import PlotlyKaleido: savefig
 using DelimitedFiles
 using Printf
 
-PlotlyKaleido.start(mathjax=false)
+try
+    PlotlyKaleido.start(mathjax=false, timeout=30)
+catch
+    PlotlyKaleido.restart(mathjax=false, timeout=60)
+end
 
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 const DASHES = ["solid", "dash", "dashdot", "dot"]

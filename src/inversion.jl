@@ -187,9 +187,14 @@ function run_fwi(config::FDTDConfig,
                 length(x0), max_iter, param_type)
     end
 
-    # Track convergence
+    # Track convergence and per-iteration diagnostics
     loss_history = Float64[]
     grad_norm_history = Float64[]
+    loss_data_history = Float64[]
+    loss_reg_eps_history = Float64[]
+    loss_reg_sigma_history = Float64[]
+    step_alpha_history = Float64[]
+    line_search_backtracks = Int[]
 
     # Objective function
     function objective(x)
@@ -217,6 +222,11 @@ function run_fwi(config::FDTDConfig,
 
     push!(loss_history, f_val)
     push!(grad_norm_history, norm(grad))
+    push!(loss_data_history, f_val)      # run_fwi has no explicit regularization term
+    push!(loss_reg_eps_history, 0.0)
+    push!(loss_reg_sigma_history, 0.0)
+    push!(step_alpha_history, NaN)       # iteration 0 has no line-search step
+    push!(line_search_backtracks, 0)
 
     if verbose
         @printf("  iter %3d: loss = %.6e, |grad| = %.6e\n", 0, f_val, norm(grad))
@@ -269,7 +279,9 @@ function run_fwi(config::FDTDConfig,
         # Backtracking line search (Armijo condition)
         alpha = step_size
         c1_armijo = 1e-4
-        f_new = objective(x .+ alpha .* direction)
+        x_trial = x .+ alpha .* direction
+        f_new = objective(x_trial)
+        n_backtracks = 0
 
         ls_success = false
         for _ in 1:20
@@ -278,7 +290,9 @@ function run_fwi(config::FDTDConfig,
                 break
             end
             alpha *= 0.5
-            f_new = objective(x .+ alpha .* direction)
+            n_backtracks += 1
+            x_trial = x .+ alpha .* direction
+            f_new = objective(x_trial)
         end
 
         # If line search failed, reject step and reset L-BFGS memory
@@ -292,11 +306,12 @@ function run_fwi(config::FDTDConfig,
             gnorm = norm(grad)
             alpha = min(1e-2, 1.0 / gnorm)
             direction = -grad
-            f_new = objective(x .+ alpha .* direction)
+            x_trial = x .+ alpha .* direction
+            f_new = objective(x_trial)
         end
 
         # Update
-        x_new = x .+ alpha .* direction
+        x_new = x_trial
         grad_new = use_ad ? ad_gradient(objective, x_new) : fd_gradient(objective, x_new)
 
         # Store L-BFGS pairs
@@ -323,6 +338,11 @@ function run_fwi(config::FDTDConfig,
 
         push!(loss_history, f_val)
         push!(grad_norm_history, norm(grad))
+        push!(loss_data_history, f_val)
+        push!(loss_reg_eps_history, 0.0)
+        push!(loss_reg_sigma_history, 0.0)
+        push!(step_alpha_history, alpha)
+        push!(line_search_backtracks, n_backtracks)
 
         if verbose
             @printf("  iter %3d: loss = %.6e, |grad| = %.6e, α = %.2e\n",
@@ -361,7 +381,10 @@ function run_fwi(config::FDTDConfig,
     end
 
     return FWIResult(eps_inf_est, deps_map, sigma_est, loss_history,
-                     grad_norm_history, length(loss_history) - 1)
+                     grad_norm_history, loss_data_history,
+                     loss_reg_eps_history, loss_reg_sigma_history,
+                     step_alpha_history, line_search_backtracks,
+                     length(loss_history) - 1)
 end
 
 """
@@ -467,39 +490,63 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         flush(stdout)
     end
 
-    # Track convergence
+    # Track convergence and per-iteration diagnostics
     loss_history = Float64[]
     grad_norm_history = Float64[]
+    loss_data_history = Float64[]
+    loss_reg_eps_history = Float64[]
+    loss_reg_sigma_history = Float64[]
+    step_alpha_history = Float64[]
+    line_search_backtracks = Int[]
 
-    # Multi-source objective: sum of per-source misfits + regularization
-    function objective(x)
-        total = 0.0
+    # Multi-source objective diagnostics:
+    #   total = data misfit + regularization (including optional norm damping)
+    function objective_terms(x)
+        loss_data = 0.0
         for k in 1:nsrc
-            total += forward_misfit(x, configs[k], obs_datas[k], src_waveforms[k],
-                                    eps_inf_init, deps_map, tau_map, sigma_init,
-                                    param_mask, param_type)
+            loss_data += forward_misfit(x, configs[k], obs_datas[k], src_waveforms[k],
+                                        eps_inf_init, deps_map, tau_map, sigma_init,
+                                        param_mask, param_type)
         end
+
+        loss_reg_eps = 0.0
+        loss_reg_sigma = 0.0
+
         # Tikhonov regularization (per-parameter for joint inversion)
         if lambda > 0
-            total += lambda * tikhonov_penalty(x, idx_map, param_mask;
-                                               stride=param_stride, param_idx=1)
+            loss_reg_eps += lambda * tikhonov_penalty(x, idx_map, param_mask;
+                                                      stride=param_stride, param_idx=1)
         end
         if param_stride > 1 && lam_sig > 0
-            total += lam_sig * tikhonov_penalty(x, idx_map, param_mask;
-                                                stride=param_stride, param_idx=2)
+            loss_reg_sigma += lam_sig * tikhonov_penalty(x, idx_map, param_mask;
+                                                         stride=param_stride, param_idx=2)
         end
         # Norm damping: penalize deviations from initial model
         if lam_d > 0 || lam_d_sig > 0
             for k in 1:length(x)
                 if param_type == :both
-                    ld = (k % 2 == 1) ? lam_d : lam_d_sig
+                    if k % 2 == 1
+                        loss_reg_eps += lam_d * (x[k] - x0[k])^2
+                    else
+                        loss_reg_sigma += lam_d_sig * (x[k] - x0[k])^2
+                    end
+                elseif param_type == :sigma
+                    loss_reg_sigma += lam_d * (x[k] - x0[k])^2
                 else
-                    ld = lam_d
+                    loss_reg_eps += lam_d * (x[k] - x0[k])^2
                 end
-                total += ld * (x[k] - x0[k])^2
             end
         end
-        return total
+
+        total = loss_data + loss_reg_eps + loss_reg_sigma
+        return (total=total,
+                data=loss_data,
+                reg_eps=loss_reg_eps,
+                reg_sigma=loss_reg_sigma)
+    end
+
+    function objective(x)
+        return objective_terms(x).total
     end
 
     # Multi-source gradient: sum of per-source gradients
@@ -561,7 +608,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
 
     # Initial gradient and objective
     grad = multi_gradient(x)
-    f_val = objective(x)
+    terms = objective_terms(x)
+    f_val = terms.total
 
     # Track best iterate (FWI can have non-monotone convergence)
     x_best = copy(x)
@@ -569,6 +617,11 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
 
     push!(loss_history, f_val)
     push!(grad_norm_history, norm(grad))
+    push!(loss_data_history, terms.data)
+    push!(loss_reg_eps_history, terms.reg_eps)
+    push!(loss_reg_sigma_history, terms.reg_sigma)
+    push!(step_alpha_history, NaN)  # iteration 0 has no line-search step
+    push!(line_search_backtracks, 0)
 
     if verbose
         @printf("  iter %3d: loss = %.6e, |grad| = %.6e\n", 0, f_val, norm(grad))
@@ -622,7 +675,9 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         alpha = step_size
         c1_armijo = 1e-4
         x_trial = clamp.(x .+ alpha .* direction, lb_vec, ub_vec)
-        f_new = objective(x_trial)
+        terms_new = objective_terms(x_trial)
+        f_new = terms_new.total
+        n_backtracks = 0
 
         ls_success = false
         for _ in 1:20
@@ -631,8 +686,10 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
                 break
             end
             alpha *= 0.5
+            n_backtracks += 1
             x_trial = clamp.(x .+ alpha .* direction, lb_vec, ub_vec)
-            f_new = objective(x_trial)
+            terms_new = objective_terms(x_trial)
+            f_new = terms_new.total
         end
 
         # If line search failed, reject step and reset L-BFGS memory
@@ -648,7 +705,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
             alpha = min(1e-2, 1.0 / gnorm)
             direction = -grad
             x_trial = clamp.(x .+ alpha .* direction, lb_vec, ub_vec)
-            f_new = objective(x_trial)
+            terms_new = objective_terms(x_trial)
+            f_new = terms_new.total
         end
 
         # Update (x_trial already projected onto bounds)
@@ -679,6 +737,11 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
 
         push!(loss_history, f_val)
         push!(grad_norm_history, norm(grad))
+        push!(loss_data_history, terms_new.data)
+        push!(loss_reg_eps_history, terms_new.reg_eps)
+        push!(loss_reg_sigma_history, terms_new.reg_sigma)
+        push!(step_alpha_history, alpha)
+        push!(line_search_backtracks, n_backtracks)
 
         if verbose
             @printf("  iter %3d: loss = %.6e, |grad| = %.6e, α = %.2e\n",
@@ -717,5 +780,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
     end
 
     return FWIResult(eps_inf_est, deps_map, sigma_est, loss_history,
-                     grad_norm_history, length(loss_history) - 1)
+                     grad_norm_history, loss_data_history,
+                     loss_reg_eps_history, loss_reg_sigma_history,
+                     step_alpha_history, line_search_backtracks,
+                     length(loss_history) - 1)
 end

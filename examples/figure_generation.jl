@@ -24,7 +24,11 @@ import PlotlyKaleido: savefig
 using DelimitedFiles
 using Printf
 
-PlotlyKaleido.start(mathjax=false)
+try
+    PlotlyKaleido.start(mathjax=false, timeout=30)
+catch
+    PlotlyKaleido.restart(mathjax=false, timeout=60)
+end
 
 # IEEE figure constants (colorblind-safe Wong palette)
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
@@ -115,7 +119,10 @@ println("  Saved fig_results_material_profile.pdf")
 # ══════════════════════════════════════════════════════════════════════════
 println("Generating fig_results_gradient_verification.pdf ...")
 
-grad_file = joinpath(datadir, "gradient_comparison.csv")
+grad_file_disp = joinpath(datadir, "gradient_comparison_dispersive.csv")
+grad_file_nondisp = joinpath(datadir, "gradient_comparison.csv")
+grad_file = isfile(grad_file_disp) ? grad_file_disp : grad_file_nondisp
+case_label = isfile(grad_file_disp) ? "Dispersive Debye case" : "Non-dispersive control"
 raw_g = readdlm(grad_file, ','; comments=true, comment_char='#')
 if raw_g[1, 1] isa AbstractString
     raw_g = raw_g[2:end, :]
@@ -128,7 +135,7 @@ fig3 = plot_scatter(grad_fd, grad_ad;
     ylabel="AD Gradient (Enzyme)",
     mode="markers", color=COLORS[1],
     marker_size=5, marker_symbol="circle",
-    legend="AD vs FD")
+    legend="AD vs FD ($case_label)")
 
 # y = x reference line
 gmin = min(minimum(grad_fd), minimum(grad_ad))

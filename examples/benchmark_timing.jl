@@ -205,7 +205,7 @@ function main()
     cpu_model = Sys.cpu_info()[1].model
     open(env_file, "w") do io
         write(io, "# Environment metadata for benchmark_timing.jl\n")
-        write(io, "key,value\n")
+        write(io, "metadata_key,metadata_value\n")
         @printf(io, "julia_version,%s\n", string(VERSION))
         @printf(io, "threads,%d\n", Threads.nthreads())
         @printf(io, "cpu_threads,%d\n", Sys.CPU_THREADS)

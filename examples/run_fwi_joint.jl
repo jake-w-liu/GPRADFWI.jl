@@ -214,7 +214,9 @@ open(conv_file, "w") do io
     write(io, "# Joint FWI convergence: $nsrc sources, $n_params params (eps_inf+sigma), AD, seed=42\n")
     write(io, "iteration,loss,grad_norm\n")
     for k in 1:length(result.loss_history)
-        @printf(io, "%d,%.12e,%.12e\n", k-1, result.loss_history[k],
+        @printf(io, "%d,%.12e,%.12e\n",
+                k-1,
+                result.loss_history[k],
                 result.grad_norm_history[k])
     end
 end

@@ -111,6 +111,11 @@ struct FWIResult
     sigma_est::Matrix{Float64}
     loss_history::Vector{Float64}
     grad_norm_history::Vector{Float64}
+    loss_data_history::Vector{Float64}
+    loss_reg_eps_history::Vector{Float64}
+    loss_reg_sigma_history::Vector{Float64}
+    step_alpha_history::Vector{Float64}
+    line_search_backtracks::Vector{Int}
     n_iter::Int
 end
 

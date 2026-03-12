@@ -170,7 +170,10 @@ function save_convergence_csv(path::String, result; header::String="")
         end
         write(io, "iteration,loss,grad_norm\n")
         for k in eachindex(result.loss_history)
-            @printf(io, "%d,%.12e,%.12e\n", k-1, result.loss_history[k], result.grad_norm_history[k])
+            @printf(io, "%d,%.12e,%.12e\n",
+                    k - 1,
+                    result.loss_history[k],
+                    result.grad_norm_history[k])
         end
     end
 end
