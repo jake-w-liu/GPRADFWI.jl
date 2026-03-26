@@ -92,6 +92,9 @@ function init_debye_coeffs(eps_inf::Matrix{Float64}, deps::Matrix{Float64},
             cp[i, j] = (1.0 - c1[i, j]) / denom
         else
             # Non-dispersive cell (simple lossy dielectric)
+            # Note: if tau=0 but deps>0, this branch treats the cell as non-dispersive
+            # using eps_inf only (deps is ignored). Callers should ensure tau>0 when
+            # deps>0 for physically meaningful Debye dispersion.
             c1[i, j] = 0.0
             c2[i, j] = 0.0
             denom = eps0 * ei + sg * dt / 2.0

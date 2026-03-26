@@ -39,6 +39,16 @@ Pkg.activate(".")
 Pkg.instantiate()
 ```
 
+## Documentation
+
+Dedicated Julia package documentation is provided under [`docs/`](docs/) using Documenter.jl.
+
+Build it locally with:
+
+```bash
+julia --project=docs docs/make.jl
+```
+
 ## Quick start
 
 ### Forward simulation

@@ -18,18 +18,17 @@ struct DebyeMedium
     deps::Float64      # Δε = εs - ε∞ (relaxation strength)
     tau::Float64       # relaxation time [s]
     sigma::Float64     # static conductivity [S/m]
-    mu_r::Float64      # relative permeability (usually 1.0)
 end
 
-function DebyeMedium(; eps_inf=1.0, deps=0.0, tau=0.0, sigma=0.0, mu_r=1.0)
-    return DebyeMedium(eps_inf, deps, tau, sigma, mu_r)
+function DebyeMedium(; eps_inf=1.0, deps=0.0, tau=0.0, sigma=0.0)
+    return DebyeMedium(eps_inf, deps, tau, sigma)
 end
 
 """
 Non-dispersive medium (Debye with deps=0, tau=0).
 """
-function SimpleMedium(; eps_r=1.0, sigma=0.0, mu_r=1.0)
-    return DebyeMedium(eps_r, 0.0, 0.0, sigma, mu_r)
+function SimpleMedium(; eps_r=1.0, sigma=0.0)
+    return DebyeMedium(eps_r, 0.0, 0.0, sigma)
 end
 
 """
