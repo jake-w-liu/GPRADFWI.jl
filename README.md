@@ -4,8 +4,8 @@ Automatic-differentiation-enabled full-waveform inversion (FWI) for ground-penet
 
 This package implements a 2D TM-mode finite-difference time-domain (FDTD) forward solver with single-pole Debye dispersion and convolutional perfectly matched layer (CPML) absorbing boundaries, coupled with compiler-level reverse-mode automatic differentiation via [Enzyme.jl](https://github.com/EnzymeAD/Enzyme.jl) for gradient computation. No hand-derived adjoint equations are required.
 
-**Reference:**
-> J. W. Liu, "Automatic-differentiation-enabled full-waveform inversion for ground-penetrating radar in dispersive media," *Computers & Geosciences*, submitted, 2026.
+<!-- **Reference:**
+> J. W. Liu, "Automatic-differentiation-enabled full-waveform inversion for ground-penetrating radar in dispersive media," *Computers & Geosciences*, submitted, 2026. -->
 
 ## Features
 
