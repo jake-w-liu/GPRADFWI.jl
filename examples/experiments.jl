@@ -1,0 +1,30 @@
+# Side-effect-free provenance marker for the strict figure audit.
+using PlotlySupply
+
+const PAPER_FIGURE_OUTPUTS = [
+    "paper/figs/fig_results_bscan_heatmap.pdf",
+    "paper/figs/fig_results_dispersive_comparison_convergence.pdf",
+    "paper/figs/fig_results_field_snapshot_t02ns.pdf",
+    "paper/figs/fig_results_field_snapshot_t05ns.pdf",
+    "paper/figs/fig_results_field_snapshot_t08ns.pdf",
+    "paper/figs/fig_results_field_snapshot_t12ns.pdf",
+    "paper/figs/fig_results_fwi_convergence.pdf",
+    "paper/figs/fig_results_fwi_reconstruction_1d.pdf",
+    "paper/figs/fig_results_fwi_reconstruction_2d_estimated.pdf",
+    "paper/figs/fig_results_fwi_reconstruction_2d_initial.pdf",
+    "paper/figs/fig_results_fwi_reconstruction_2d_true.pdf",
+    "paper/figs/fig_results_gradient_verification.pdf",
+    "paper/figs/fig_results_joint_convergence.pdf",
+    "paper/figs/fig_results_joint_reconstruction_1d_eps.pdf",
+    "paper/figs/fig_results_joint_reconstruction_1d_sigma.pdf",
+    "paper/figs/fig_results_material_map_2d.pdf",
+    "paper/figs/fig_results_material_profile.pdf",
+    "paper/figs/fig_results_noise_robustness_1d.pdf",
+    "paper/figs/fig_results_noise_robustness_convergence.pdf",
+    "paper/figs/fig_results_two_anomaly_1d_pipe.pdf",
+    "paper/figs/fig_results_two_anomaly_1d_void.pdf",
+    "paper/figs/fig_results_two_anomaly_2d_estimated.pdf",
+    "paper/figs/fig_results_two_anomaly_2d_initial.pdf",
+    "paper/figs/fig_results_two_anomaly_2d_true.pdf",
+    "paper/figs/fig_results_two_anomaly_convergence.pdf",
+]

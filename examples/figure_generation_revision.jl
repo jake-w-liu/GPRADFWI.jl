@@ -7,20 +7,10 @@
 #   4. fig_results_noise_robustness_1d.pdf                — 1D reconstruction at 3 SNR levels
 #   5. fig_results_noise_robustness_convergence.pdf       — Convergence at 3 SNR levels
 
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "..", "..", "PlotlySupply.jl"))
-
 using PlotlySupply
-using PlotlyKaleido: PlotlyKaleido
-import PlotlyKaleido: savefig
+import PlotlySupply: savefig
 using DelimitedFiles
 using Printf
-
-try
-    PlotlyKaleido.start(mathjax=false, timeout=30)
-catch
-    PlotlyKaleido.restart(mathjax=false, timeout=60)
-end
 
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 const DASHES = ["solid", "dash", "dashdot", "dot"]
@@ -94,6 +84,7 @@ if isfile(conv_disp) && isfile(conv_nondisp)
         color=COLORS[2], dash=DASHES[2], mode="lines+markers",
         legend="Non-dispersive FWI", linewidth=2, marker_size=4)
 
+    # Legend: topright is least obstructive because both convergence traces drop away from that corner.
     set_legend!(fig_cc; position=:topright)
     savefig(fig_cc, joinpath(figdir, "fig_results_dispersive_comparison_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -135,6 +126,7 @@ if isfile(recon_disp) && isfile(recon_nondisp)
         color=COLORS[3], dash=DASHES[3], mode="lines",
         legend="Initial", linewidth=2)
 
+    # Legend: topright is least obstructive because reconstruction differences sit mostly in the deeper profile.
     set_legend!(fig_cr; position=:topright)
     savefig(fig_cr, joinpath(figdir, "fig_results_dispersive_comparison_1d.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -165,6 +157,7 @@ if isfile(recon_2d_nondisp)
     fig_n2d = plot_heatmap(x_n, y_n, eps_n;
         xlabel="x [cm]", ylabel="Depth [cm]",
         colorscale="Viridis", zrange=[zmin, zmax],
+        equalar=true,
         yrange=[maximum(y_n), minimum(y_n)])
     savefig(fig_n2d, joinpath(figdir, "fig_results_reconstruction_2d_nondispersive.pdf");
             width=336, height=IEEE_SINGLE_COL_H)
@@ -220,6 +213,7 @@ if has_multiseed_recon
             legend=snr_labels[k], linewidth=2, marker_size=3)
     end
 
+    # Legend: topright is least obstructive because noisy reconstruction differences are largest below the surface.
     set_legend!(fig_nr; position=:topright)
     savefig(fig_nr, joinpath(figdir, "fig_results_noise_robustness_1d.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -251,6 +245,7 @@ elseif isfile(recon_clean) && any_noisy
         end
     end
 
+    # Legend: topright is least obstructive because noisy reconstruction differences are largest below the surface.
     set_legend!(fig_nr; position=:topright)
     savefig(fig_nr, joinpath(figdir, "fig_results_noise_robustness_1d.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -291,6 +286,7 @@ if has_multiseed_conv
         end
     end
 
+    # Legend: topright is least obstructive because the log-scale curves occupy the lower-left trend region.
     set_legend!(fig_nc; position=:topright)
     savefig(fig_nc, joinpath(figdir, "fig_results_noise_robustness_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -318,6 +314,7 @@ elseif isfile(conv_clean) && any_noisy_conv
         end
     end
 
+    # Legend: topright is least obstructive because the log-scale curves occupy the lower-left trend region.
     set_legend!(fig_nc; position=:topright)
     savefig(fig_nc, joinpath(figdir, "fig_results_noise_robustness_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)

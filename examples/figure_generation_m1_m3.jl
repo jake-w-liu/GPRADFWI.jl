@@ -7,21 +7,15 @@
 #   2. fig_results_two_anomaly_convergence.pdf
 #   3. fig_results_two_anomaly_reconstruction_2d.pdf (true, initial, estimated)
 #   4. fig_results_two_anomaly_reconstruction_1d.pdf (pipe + void slices)
-
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "..", "..", "PlotlySupply.jl"))
+# Explicit publication outputs from interpolated save paths:
+#   fig_results_two_anomaly_2d_true.pdf
+#   fig_results_two_anomaly_2d_initial.pdf
+#   fig_results_two_anomaly_2d_estimated.pdf
 
 using PlotlySupply
-using PlotlyKaleido: PlotlyKaleido
-import PlotlyKaleido: savefig
+import PlotlySupply: savefig
 using DelimitedFiles
 using Printf
-
-try
-    PlotlyKaleido.start(mathjax=false, timeout=30)
-catch
-    PlotlyKaleido.restart(mathjax=false, timeout=60)
-end
 
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 const DASHES = ["solid", "dash", "dashdot", "dot"]
@@ -100,6 +94,7 @@ if isfile(conv_disp) && isfile(conv_nondisp) && isfile(conv_eps_s)
         color=COLORS[2], dash=DASHES[2], mode="lines+markers",
         legend=raw"Non-dispersive ($\varepsilon_\infty$)", linewidth=2, marker_size=4)
 
+    # Legend: topright is least obstructive because all convergence curves move away from that corner.
     set_legend!(fig_cc; position=:topright)
     savefig(fig_cc, joinpath(figdir, "fig_results_dispersive_comparison_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -138,6 +133,7 @@ if isfile(conv_two)
         mode="lines+markers", color=COLORS[1], dash=DASHES[1],
         legend="Two-anomaly FWI", linewidth=2, marker_size=4,
         yscale="log")
+    # Legend: topright is least obstructive because the single convergence trace leaves that corner sparse.
     set_legend!(fig_tc; position=:topright)
     savefig(fig_tc, joinpath(figdir, "fig_results_two_anomaly_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -161,6 +157,7 @@ if all(isfile(f[2]) for f in files_2d)
         fig_2d = plot_heatmap(x, y, U;
             xlabel="x [cm]", ylabel="Depth [cm]",
             colorscale="Viridis", zrange=[1.0, 16.0],
+            equalar=true,
             yrange=[maximum(y), minimum(y)])
         savefig(fig_2d, joinpath(figdir, "fig_results_two_anomaly_2d_$(tag).pdf");
                 width=336, height=IEEE_SINGLE_COL_H)
@@ -199,6 +196,7 @@ if isfile(recon_pipe) && isfile(recon_void)
     plot_scatter!(fig_p, depth_p, eps_est_p;
         color=COLORS[2], dash=DASHES[2], mode="lines+markers",
         legend="Estimated", linewidth=2, marker_size=4)
+    # Legend: topright is least obstructive because pipe-slice differences are strongest below the shallow interval.
     set_legend!(fig_p; position=:topright)
     savefig(fig_p, joinpath(figdir, "fig_results_two_anomaly_1d_pipe.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -215,6 +213,7 @@ if isfile(recon_pipe) && isfile(recon_void)
     plot_scatter!(fig_v, depth_v, eps_est_v;
         color=COLORS[2], dash=DASHES[2], mode="lines+markers",
         legend="Estimated", linewidth=2, marker_size=4)
+    # Legend: topright is least obstructive because void-slice differences are strongest below the shallow interval.
     set_legend!(fig_v; position=:topright)
     savefig(fig_v, joinpath(figdir, "fig_results_two_anomaly_1d_void.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)

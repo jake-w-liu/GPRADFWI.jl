@@ -1,7 +1,7 @@
 # figure_generation.jl — Generate all publication-quality results figures
 #
 # Reads CSV data from paper/data/ and generates IEEE-quality figures
-# using PlotlySupply.jl + PlotlyKaleido.jl (PDF export).
+# using PlotlySupply.jl (PDF export).
 #
 # Figures produced:
 #   1. fig_results_bscan.pdf                 — GPR B-scan (selected receiver traces)
@@ -14,21 +14,19 @@
 #   8. fig_results_bscan_heatmap.pdf         — Full B-scan as heatmap
 #   9. fig_results_fwi_reconstruction_2d_*.pdf (x3) — Large-domain 2D reconstruction
 #  10. fig_results_gradient_sensitivity.pdf  — 2D gradient magnitude
-
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "..", "..", "PlotlySupply.jl"))
+# Explicit publication outputs from interpolated save paths:
+#   fig_results_field_snapshot_t02ns.pdf
+#   fig_results_field_snapshot_t05ns.pdf
+#   fig_results_field_snapshot_t08ns.pdf
+#   fig_results_field_snapshot_t12ns.pdf
+#   fig_results_fwi_reconstruction_2d_true.pdf
+#   fig_results_fwi_reconstruction_2d_initial.pdf
+#   fig_results_fwi_reconstruction_2d_estimated.pdf
 
 using PlotlySupply
-using PlotlyKaleido: PlotlyKaleido
-import PlotlyKaleido: savefig
+import PlotlySupply: savefig
 using DelimitedFiles
 using Printf
-
-try
-    PlotlyKaleido.start(mathjax=false, timeout=30)
-catch
-    PlotlyKaleido.restart(mathjax=false, timeout=60)
-end
 
 # IEEE figure constants (colorblind-safe Wong palette)
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
@@ -69,6 +67,7 @@ for (k, tid) in enumerate(trace_ids[2:end])
         legend="Rx $tid", linewidth=2)
 end
 
+# Legend: topright is least obstructive because selected receiver traces separate most at mid/late times.
 set_legend!(fig1; position=:topright)
 savefig(fig1, joinpath(figdir, "fig_results_bscan.pdf");
         width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -109,6 +108,7 @@ plot_scatter!(fig2, depth_sub .* 100, eps_s_sub;
     color=COLORS[3], dash=DASHES[3], mode="lines",
     legend="eps_s = eps_inf + delta_eps", linewidth=2)
 
+# Legend: topright is least obstructive because layer transitions occupy the lower and mid-depth profile.
 set_legend!(fig2; position=:topright)
 savefig(fig2, joinpath(figdir, "fig_results_material_profile.pdf");
         width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -145,6 +145,7 @@ plot_scatter!(fig3, [gmin - margin, gmax + margin], [gmin - margin, gmax + margi
     color=COLORS[2], dash="dash", mode="lines",
     legend="y = x", linewidth=2)
 
+# Legend: topleft is least obstructive because the gradient cloud and y=x line occupy the diagonal band.
 set_legend!(fig3; position=:topleft)
 savefig(fig3, joinpath(figdir, "fig_results_gradient_verification.pdf");
         width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -170,6 +171,7 @@ if isfile(conv_file_fwi)
         legend="Loss", linewidth=2, marker_size=4,
         yscale="log")
 
+    # Legend: topright is least obstructive because the single loss trace leaves the upper-right log panel sparse.
     set_legend!(fig4; position=:topright)
     savefig(fig4, joinpath(figdir, "fig_results_fwi_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -207,6 +209,7 @@ if isfile(recon1d_file_fwi)
         color=COLORS[3], dash=DASHES[3], mode="lines",
         legend="Initial", linewidth=2)
 
+    # Legend: topright is least obstructive because profile changes occur mainly at depth transitions below it.
     set_legend!(fig5; position=:topright)
     savefig(fig5, joinpath(figdir, "fig_results_fwi_reconstruction_1d.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -261,6 +264,7 @@ if isfile(mat2d_file)
     fig6 = plot_heatmap(x_mat .* 100.0, y_mat_cm, eps_2d;
         xlabel="x [cm]", ylabel="Depth [cm]",
         colorscale="Viridis",
+        equalar=true,
         yrange=[maximum(y_mat_cm), minimum(y_mat_cm)])  # depth increases downward
     savefig(fig6, joinpath(figdir, "fig_results_material_map_2d.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -301,6 +305,7 @@ for (k, fname) in enumerate(snap_files)
             xlabel="x [cm]", ylabel="Depth [cm]",
             colorscale="RdBu",
             zrange=[-snap_vmax, snap_vmax],
+            equalar=true,
             yrange=[maximum(y_s_cm), minimum(y_s_cm)],
             title="t = $(snap_times[k]) ns")
         outname = @sprintf("fig_results_field_snapshot_t%02dns.pdf", snap_times[k])
@@ -371,6 +376,7 @@ if isfile(recon_true_file) && isfile(recon_init_file) && isfile(recon_est_file)
         fig_r = plot_heatmap(x_v, y_v, eps_v;
             xlabel="x [cm]", ylabel="Depth [cm]",
             colorscale="Viridis", zrange=[zmin, zmax],
+            equalar=true,
             yrange=[maximum(y_v), minimum(y_v)])
         outname = "fig_results_fwi_reconstruction_2d_$(label).pdf"
         savefig(fig_r, joinpath(figdir, outname);
@@ -392,6 +398,7 @@ if isfile(grad_sens_file)
     fig10 = plot_heatmap(x_g, y_g, grad_mag_2d;
         xlabel="x [cm]", ylabel="Depth [cm]",
         colorscale="Viridis",
+        equalar=true,
         yrange=[maximum(y_g), minimum(y_g)])
     savefig(fig10, joinpath(figdir, "fig_results_gradient_sensitivity.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)

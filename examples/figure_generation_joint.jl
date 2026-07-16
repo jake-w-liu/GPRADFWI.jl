@@ -6,20 +6,10 @@
 #   3. fig_results_joint_reconstruction_2d_eps_*.pdf  — 2D eps_inf maps
 #   4. fig_results_joint_reconstruction_2d_sigma_*.pdf — 2D sigma maps
 
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "..", "..", "PlotlySupply.jl"))
-
 using PlotlySupply
-using PlotlyKaleido: PlotlyKaleido
-import PlotlyKaleido: savefig
+import PlotlySupply: savefig
 using DelimitedFiles
 using Printf
-
-try
-    PlotlyKaleido.start(mathjax=false, timeout=30)
-catch
-    PlotlyKaleido.restart(mathjax=false, timeout=60)
-end
 
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 const DASHES = ["solid", "dash", "dashdot", "dot"]
@@ -92,6 +82,7 @@ if isfile(conv_joint)
             legend="Single (eps_inf only)", linewidth=2, marker_size=3)
     end
 
+    # Legend: topright is least obstructive because the convergence traces fall away from that corner.
     set_legend!(fig_conv; position=:topright)
     savefig(fig_conv, joinpath(figdir, "fig_results_joint_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -127,6 +118,7 @@ if isfile(recon1d)
     plot_scatter!(fig_eps, depth, eps_est;
         mode="lines+markers", color=COLORS[2], dash=DASHES[2],
         legend="Joint FWI", linewidth=2, marker_size=3)
+    # Legend: topright is least obstructive because profile separation is strongest below the shallow interval.
     set_legend!(fig_eps; position=:topright)
     savefig(fig_eps, joinpath(figdir, "fig_results_joint_reconstruction_1d_eps.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -145,6 +137,7 @@ if isfile(recon1d)
     plot_scatter!(fig_sig, depth, sigma_est .* 1e3;
         mode="lines+markers", color=COLORS[2], dash=DASHES[2],
         legend="Joint FWI", linewidth=2, marker_size=3)
+    # Legend: topright is least obstructive because conductivity variation is concentrated below the shallow interval.
     set_legend!(fig_sig; position=:topright)
     savefig(fig_sig, joinpath(figdir, "fig_results_joint_reconstruction_1d_sigma.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -179,6 +172,7 @@ if all(isfile(f) for (_, f) in eps_files)
         fig = plot_heatmap(x, y, U;
             xlabel="x [cm]", ylabel="Depth [cm]",
             colorscale="Viridis", zrange=[zmin_e, zmax_e],
+            equalar=true,
             yrange=[maximum(y), minimum(y)])
         savefig(fig, joinpath(figdir, fname); width=336, height=IEEE_SINGLE_COL_H)
         println("  Saved $fname")
@@ -213,6 +207,7 @@ if all(isfile(f) for (_, f) in sigma_files)
         fig = plot_heatmap(x, y, U;
             xlabel="x [cm]", ylabel="Depth [cm]",
             colorscale="Viridis", zrange=[zmin_s, zmax_s],
+            equalar=true,
             yrange=[maximum(y), minimum(y)])
         savefig(fig, joinpath(figdir, fname); width=336, height=IEEE_SINGLE_COL_H)
         println("  Saved $fname")

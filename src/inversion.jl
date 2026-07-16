@@ -41,6 +41,8 @@ function ad_gradient(f::Function, x::Vector{Float64})
     return dx
 end
 
+_line_search_needs_fallback(ls_success::Bool) = !ls_success
+
 """
     _build_idx_map(param_mask)
 
@@ -301,8 +303,8 @@ function run_fwi(config::FDTDConfig,
             f_new = objective(x_trial)
         end
 
-        # If line search failed, reject step and reset L-BFGS memory
-        if !ls_success && f_new > f_val
+        # If Armijo failed, reset L-BFGS memory and use the manuscript fallback.
+        if _line_search_needs_fallback(ls_success)
             if verbose
                 @printf("  [Line search failed, resetting L-BFGS]\n")
                 flush(stdout)
@@ -702,8 +704,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
             f_new = terms_new.total
         end
 
-        # If line search failed, reject step and reset L-BFGS memory
-        if !ls_success && f_new > f_val
+        # If Armijo failed, reset L-BFGS memory and use the manuscript fallback.
+        if _line_search_needs_fallback(ls_success)
             if verbose
                 @printf("  [Line search failed, resetting L-BFGS]\n")
                 flush(stdout)

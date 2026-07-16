@@ -229,6 +229,17 @@
         @test f_step < f0  # steepest descent must decrease cost
     end
 
+    @testset "Armijo failure triggers manuscript fallback" begin
+        ls_success = false
+        f_val = 1.0
+        f_new = 0.99999999995
+        armijo_rhs = 0.99999999990
+
+        @test f_new < f_val
+        @test f_new > armijo_rhs
+        @test GPRADFWI._line_search_needs_fallback(ls_success)
+    end
+
     # ── Category D: Single-cell inversion ─────────────────────────────────
 
     @testset "Single-parameter inversion" begin

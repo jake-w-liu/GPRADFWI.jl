@@ -8,19 +8,9 @@
 #   2. heuristic_gradient_comparison.pdf — AD vs FD gradients (sanity check)
 #   3. heuristic_convergence.pdf — FWI convergence (stability check)
 
-using Pkg
-Pkg.activate(joinpath(@__DIR__, "..", "..", "PlotlySupply.jl"))
-
 using PlotlySupply
-using PlotlyKaleido: PlotlyKaleido
-import PlotlyKaleido: savefig
+import PlotlySupply: savefig
 using DelimitedFiles
-
-try
-    PlotlyKaleido.start(mathjax=false, timeout=30)
-catch
-    PlotlyKaleido.restart(mathjax=false, timeout=60)
-end
 
 # IEEE figure constants
 const COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
@@ -64,6 +54,7 @@ if isfile(bscan_file)
             legend="Rx $tid", linewidth=2)
     end
 
+    # Legend: topright is least obstructive because selected receiver traces separate most at mid/late times.
     set_legend!(fig; position=:topright)
     savefig(fig, joinpath(figdir, "heuristic_bscan.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -102,6 +93,7 @@ if isfile(grad_file)
         color=COLORS[2], dash="dash", mode="lines",
         legend="y = x", linewidth=2)
 
+    # Legend: topleft is least obstructive because the gradient cloud and y=x line occupy the diagonal band.
     set_legend!(fig; position=:topleft)
     savefig(fig, joinpath(figdir, "heuristic_gradient_comparison.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
@@ -140,6 +132,7 @@ if isfile(conv_file)
         mode="lines+markers", color=COLORS[2], dash=DASHES[2],
         legend="||∇f|| / ||∇f₀||", linewidth=2, marker_size=4)
 
+    # Legend: topright is least obstructive because normalized convergence traces leave that corner sparse.
     set_legend!(fig; position=:topright)
     savefig(fig, joinpath(figdir, "heuristic_convergence.pdf");
             width=IEEE_SINGLE_COL_W, height=IEEE_SINGLE_COL_H)
