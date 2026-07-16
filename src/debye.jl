@@ -72,6 +72,11 @@ function init_debye_coeffs(eps_inf::Matrix{Float64}, deps::Matrix{Float64},
         ta  = tau[i, j]
         sg  = sigma[i, j]
 
+        isfinite(ei) && ei > 0.0 || throw(DomainError(ei, "eps_inf must be finite and positive"))
+        isfinite(de) || throw(DomainError(de, "deps must be finite"))
+        isfinite(ta) && ta >= 0.0 || throw(DomainError(ta, "tau must be finite and nonnegative"))
+        isfinite(sg) && sg >= 0.0 || throw(DomainError(sg, "sigma must be finite and nonnegative"))
+
         if ta > 0.0 && de != 0.0
             # Debye dispersive cell
             denom_p = 2.0 * ta + dt
@@ -90,11 +95,20 @@ function init_debye_coeffs(eps_inf::Matrix{Float64}, deps::Matrix{Float64},
             ca[i, j] = (eps0 * ei - sg * dt / 2.0) / denom
             cb[i, j] = dt / denom
             cp[i, j] = (1.0 - c1[i, j]) / denom
+        elseif ta == 0.0 && de != 0.0
+            # Instantaneous-relaxation limit: P = eps0*deps*E, so the static
+            # increment contributes directly to the nondispersive permittivity.
+            effective_eps = ei + de
+            effective_eps > 0.0 || throw(DomainError(effective_eps,
+                "eps_inf + deps must be positive when tau is zero"))
+            c1[i, j] = 0.0
+            c2[i, j] = 0.0
+            denom = eps0 * effective_eps + sg * dt / 2.0
+            ca[i, j] = (eps0 * effective_eps - sg * dt / 2.0) / denom
+            cb[i, j] = dt / denom
+            cp[i, j] = 0.0
         else
             # Non-dispersive cell (simple lossy dielectric)
-            # Note: if tau=0 but deps>0, this branch treats the cell as non-dispersive
-            # using eps_inf only (deps is ignored). Callers should ensure tau>0 when
-            # deps>0 for physically meaningful Debye dispersion.
             c1[i, j] = 0.0
             c2[i, j] = 0.0
             denom = eps0 * ei + sg * dt / 2.0

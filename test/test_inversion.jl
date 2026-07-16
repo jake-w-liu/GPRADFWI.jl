@@ -1,5 +1,13 @@
 @testset verbose = true "Inversion" begin
 
+    small_config(; nx=20, ny=20, npml=4, nt=40) = create_config(
+        nx=nx, ny=ny, dx=0.01, fc=300e6, npml=npml,
+        src_ix=nx ÷ 2, src_iy=ny ÷ 2,
+        rx_iy=npml + 2,
+        rx_ix_list=collect((npml + 2):3:(nx - npml - 1)),
+        nt=nt,
+    )
+
     # ── Helper: small test problem matching the paper ─────────────────────
 
     function setup_small_inversion(; nt=100)
@@ -91,7 +99,83 @@
         @test isapprox(g_ad, g_fd; rtol=1e-8)  # AD vs FD agree
     end
 
-    @testset "AD gradient matches FD gradient — FDTD misfit" begin
+@testset "Forward-misfit parameter layout validation" begin
+    config = small_config(nx=20, ny=20, npml=4, nt=4)
+    eps_inf = fill(4.0, config.nx, config.ny)
+    deps = zeros(config.nx, config.ny)
+    tau = fill(1e-9, config.nx, config.ny)
+    sigma = zeros(config.nx, config.ny)
+    src = zeros(config.nt)
+    obs = zeros(config.nt, length(config.rx_ix))
+    mask = falses(config.nx, config.ny)
+    mask[10, 10] = true
+
+    args = (config, obs, src, eps_inf, deps, tau, sigma, mask)
+    @test_throws ArgumentError forward_misfit([4.0], args..., :unknown)
+    @test_throws DimensionMismatch forward_misfit(Float64[], args..., :eps_inf)
+    @test_throws DimensionMismatch forward_misfit([4.0, 5.0], args..., :eps_inf)
+    @test_throws DimensionMismatch forward_misfit([4.0], config, obs, src,
+                                                   eps_inf, deps, tau[1:end-1, :],
+                                                   sigma, mask, :eps_inf)
+    @test_throws DimensionMismatch forward_misfit([4.0], config, obs, src,
+                                                   eps_inf, deps, tau,
+                                                   sigma[1:end-1, :], mask, :eps_inf)
+end
+
+@testset "Sigma-only regularization diagnostics" begin
+    config = small_config(nx=20, ny=20, npml=4, nt=4)
+    eps_inf = fill(4.0, config.nx, config.ny)
+    deps = zeros(config.nx, config.ny)
+    tau = fill(1e-9, config.nx, config.ny)
+    sigma = zeros(config.nx, config.ny)
+    sigma[10, 10] = 1e-3
+    sigma[11, 10] = 3e-3
+    src = zeros(config.nt)
+    obs = zeros(config.nt, length(config.rx_ix))
+    mask = falses(config.nx, config.ny)
+    mask[10:11, 10] .= true
+
+    callback_records = NamedTuple[]
+    callback = state -> push!(callback_records, state)
+    result = run_fwi_multisource([config], [obs], [src], eps_inf, deps, tau,
+                                 sigma, mask; max_iter=1, param_type=:sigma,
+                                 use_ad=false, verbose=false, lambda=0.0,
+                                 lambda_sigma=1.0, callback=callback)
+    expected = (sigma[11, 10] - sigma[10, 10])^2
+    @test result.loss_reg_eps_history[1] == 0.0
+    @test result.loss_reg_sigma_history[1] ≈ expected
+    @test result.loss_history[1] ≈ result.loss_reg_sigma_history[1]
+    @test length(callback_records) == 2
+    @test callback_records[1].iteration == 0
+    @test callback_records[2].iteration == 1
+    @test callback_records[end].loss_total ≈ result.loss_history[end]
+    @test all(0.0 .<= callback_records[end].params .<= 0.1)
+end
+
+@testset "Returned FWI model matches final history entry" begin
+    config = small_config(nx=20, ny=20, npml=4, nt=40)
+    eps_init = fill(4.0, config.nx, config.ny)
+    eps_true = copy(eps_init)
+    eps_true[config.source.ix, config.source.iy] = 6.0
+    deps = zeros(config.nx, config.ny)
+    tau = fill(1e-9, config.nx, config.ny)
+    sigma = zeros(config.nx, config.ny)
+    src = zeros(config.nt)
+    src[2] = 1e-9
+    obs = run_forward!(config, eps_true, deps, tau, sigma, src)
+    mask = falses(config.nx, config.ny)
+    mask[config.source.ix, config.source.iy] = true
+
+    result = run_fwi(config, obs, src, eps_init, deps, tau, sigma, mask;
+                     max_iter=1, param_type=:eps_inf, use_ad=false,
+                     verbose=false)
+    final_params = [result.eps_inf_est[config.source.ix, config.source.iy]]
+    final_loss = forward_misfit(final_params, config, obs, src, eps_init,
+                                deps, tau, sigma, mask, :eps_inf)
+    @test final_loss ≈ result.loss_history[end] rtol=1e-12 atol=1e-12
+end
+
+@testset "AD gradient matches FD gradient — FDTD misfit" begin
         Random.seed!(401)
         config, eps_inf_bg, eps_inf_true, deps, tau, sigma,
             param_mask, src, obs_data = setup_small_inversion(nt=50)

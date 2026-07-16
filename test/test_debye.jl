@@ -184,3 +184,21 @@
         @test isapprox(P, P_expected; rtol=1e-12)
     end
 end
+
+@testset "Instantaneous Debye limit and invalid material values" begin
+    dt = 1e-12
+    eps_inf = fill(4.0, 1, 1)
+    deps = fill(2.0, 1, 1)
+    tau = zeros(1, 1)
+    sigma = zeros(1, 1)
+    coeffs = GPRADFWI.init_debye_coeffs(eps_inf, deps, tau, sigma, dt, 1, 1)
+    @test coeffs.c1[1, 1] == 0.0
+    @test coeffs.c2[1, 1] == 0.0
+    @test coeffs.ca[1, 1] ≈ 1.0
+    @test coeffs.cb[1, 1] ≈ dt / (GPRADFWI.eps0 * 6.0)
+
+    @test_throws DomainError GPRADFWI.init_debye_coeffs(
+        eps_inf, deps, fill(-1e-9, 1, 1), sigma, dt, 1, 1)
+    @test_throws DomainError GPRADFWI.init_debye_coeffs(
+        eps_inf, deps, tau, fill(-1e-3, 1, 1), dt, 1, 1)
+end

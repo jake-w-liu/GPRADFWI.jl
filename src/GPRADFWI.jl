@@ -43,6 +43,8 @@ include("sources.jl")
 include("cpml.jl")
 include("debye.jl")
 include("fdtd.jl")
+include("multipole.jl")
+include("hand_adjoint.jl")
 include("inversion.jl")
 
 # ── Exports ────────────────────────────────────────────────────────────
@@ -52,5 +54,9 @@ export create_config, create_source
 export run_forward!, run_forward_snapshots, compute_misfit, forward_misfit
 export fd_gradient, ad_gradient
 export run_fwi, run_fwi_multisource
+export MultiPoleDebyeMedium, init_multipole_coeffs
+export discrete_debye_susceptibility, run_forward_multipole!
+export multipole_forward_misfit_eps
+export hand_adjoint_gradient, hand_adjoint_store_all_bytes
 
 end # module

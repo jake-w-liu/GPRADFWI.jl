@@ -298,18 +298,43 @@
 
     # ── Category E: Error handling ────────────────────────────────────────
 
-    @testset "Dimension assertion on material maps" begin
+@testset "Debye-consistent source injection" begin
+    Ez = fill(2.0, 3, 3)
+    Pz = fill(0.4, 3, 3)
+    coeffs = (cb=fill(0.5, 3, 3), c2=fill(0.25, 3, 3))
+    old_E = Ez[2, 2]
+    old_P = Pz[2, 2]
+
+    delta_E = GPRADFWI._inject_source_debye!(Ez, Pz, coeffs, 2, 2, 3.0, 0.75)
+    @test delta_E == 2.0
+    @test Ez[2, 2] == old_E + delta_E
+    @test Pz[2, 2] == old_P + coeffs.c2[2, 2] * delta_E
+
+    Pz_nondispersive = zeros(3, 3)
+    nondispersive = (cb=fill(0.5, 3, 3), c2=zeros(3, 3))
+    GPRADFWI._inject_source_debye!(copy(Ez), Pz_nondispersive,
+                                   nondispersive, 2, 2, 3.0, 0.75)
+    @test iszero(Pz_nondispersive[2, 2])
+end
+
+@testset "Snapshot step validation" begin
+    @test isnothing(GPRADFWI._validate_snapshot_steps([1, 3, 5], 5))
+    @test_throws ArgumentError GPRADFWI._validate_snapshot_steps([2, 2], 5)
+    @test_throws ArgumentError GPRADFWI._validate_snapshot_steps([0, 2], 5)
+end
+
+@testset "Dimension assertion on material maps" begin
         config = small_config()
         nx, ny = config.nx, config.ny
         src = create_source(config)
 
         # Wrong-sized eps_inf should fail
-        @test_throws AssertionError run_forward!(
+    @test_throws DimensionMismatch run_forward!(
             config, ones(nx+1, ny), zeros(nx, ny), zeros(nx, ny), zeros(nx, ny), src
         )
 
         # Wrong-sized source should fail
-        @test_throws AssertionError run_forward!(
+    @test_throws DimensionMismatch run_forward!(
             config, ones(nx, ny), zeros(nx, ny), zeros(nx, ny), zeros(nx, ny),
             zeros(config.nt + 1)
         )

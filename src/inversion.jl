@@ -43,6 +43,24 @@ end
 
 _line_search_needs_fallback(ls_success::Bool) = !ls_success
 
+function _invoke_iterate_callback(callback, iteration::Int, x::Vector{Float64},
+                                  loss_total::Float64, loss_data::Float64,
+                                  loss_reg_eps::Float64, loss_reg_sigma::Float64,
+                                  grad_norm::Float64, step_alpha::Float64,
+                                  backtracks::Int)
+    callback === nothing && return nothing
+    callback((iteration=iteration,
+              params=copy(x),
+              loss_total=loss_total,
+              loss_data=loss_data,
+              loss_reg_eps=loss_reg_eps,
+              loss_reg_sigma=loss_reg_sigma,
+              grad_norm=grad_norm,
+              step_alpha=step_alpha,
+              backtracks=backtracks))
+    return nothing
+end
+
 """
     _build_idx_map(param_mask)
 
@@ -172,9 +190,17 @@ function run_fwi(config::FDTDConfig,
                  max_iter::Int = 30,
                  param_type::Symbol = :eps_inf,
                  use_ad::Bool = false,
-                 verbose::Bool = true)
+                 verbose::Bool = true,
+                 callback::Union{Nothing,Function} = nothing)
     nx = config.nx
     ny = config.ny
+
+    _parameter_stride(param_type)
+    max_iter >= 0 || throw(ArgumentError("max_iter must be nonnegative"))
+    _validate_forward_inputs(config, eps_inf_init, deps_map, tau_map, sigma_init, src_waveform)
+    size(param_mask) == (nx, ny) || throw(DimensionMismatch("param_mask must have size ($(nx), $(ny)); got $(size(param_mask))"))
+    expected_obs_size = (config.nt, length(config.rx_ix))
+    size(obs_data) == expected_obs_size || throw(DimensionMismatch("obs_data must have size $expected_obs_size; got $(size(obs_data))"))
 
     # Pack initial parameters into flat vector
     x0 = Float64[]
@@ -224,10 +250,6 @@ function run_fwi(config::FDTDConfig,
     grad = use_ad ? ad_gradient(objective, x) : fd_gradient(objective, x)
     f_val = objective(x)
 
-    # Track best iterate
-    x_best = copy(x)
-    f_best = f_val
-
     push!(loss_history, f_val)
     push!(grad_norm_history, norm(grad))
     push!(loss_data_history, f_val)      # run_fwi has no explicit regularization term
@@ -235,6 +257,8 @@ function run_fwi(config::FDTDConfig,
     push!(loss_reg_sigma_history, 0.0)
     push!(step_alpha_history, NaN)       # iteration 0 has no line-search step
     push!(line_search_backtracks, 0)
+    _invoke_iterate_callback(callback, 0, x, f_val, f_val, 0.0, 0.0,
+                             norm(grad), NaN, 0)
 
     if verbose
         @printf("  iter %3d: loss = %.6e, |grad| = %.6e\n", 0, f_val, norm(grad))
@@ -338,12 +362,6 @@ function run_fwi(config::FDTDConfig,
         grad = grad_new
         f_val = f_new
 
-        # Update best iterate
-        if f_val < f_best
-            x_best = copy(x)
-            f_best = f_val
-        end
-
         push!(loss_history, f_val)
         push!(grad_norm_history, norm(grad))
         push!(loss_data_history, f_val)
@@ -351,6 +369,8 @@ function run_fwi(config::FDTDConfig,
         push!(loss_reg_sigma_history, 0.0)
         push!(step_alpha_history, alpha)
         push!(line_search_backtracks, n_backtracks)
+        _invoke_iterate_callback(callback, iter, x, f_val, f_val, 0.0, 0.0,
+                                 norm(grad), alpha, n_backtracks)
 
         if verbose
             @printf("  iter %3d: loss = %.6e, |grad| = %.6e, α = %.2e\n",
@@ -365,13 +385,8 @@ function run_fwi(config::FDTDConfig,
         end
     end
 
-    if verbose && f_best < f_val
-        @printf("  Using best iterate (loss = %.6e vs final %.6e)\n", f_best, f_val)
-        flush(stdout)
-    end
-
-    # Unpack best parameters (not necessarily the final iterate)
-    x_final = f_best < f_val ? x_best : x
+    # Unpack the final iterate represented by the last history entry.
+    x_final = x
     eps_inf_est = copy(eps_inf_init)
     sigma_est = copy(sigma_init)
     idx = 1
@@ -439,13 +454,24 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
                               lambda::Float64 = 0.0,
                               lambda_sigma::Float64 = -1.0,
                               lambda_damp::Float64 = 0.0,
-                              lambda_damp_sigma::Float64 = -1.0)
+                              lambda_damp_sigma::Float64 = -1.0,
+                              callback::Union{Nothing,Function} = nothing)
     nsrc = length(configs)
-    @assert length(obs_datas) == nsrc "Need one obs_data per source"
-    @assert length(src_waveforms) == nsrc "Need one src_waveform per source"
+    nsrc > 0 || throw(ArgumentError("configs must contain at least one source"))
+    length(obs_datas) == nsrc || throw(DimensionMismatch("need one obs_data per source"))
+    length(src_waveforms) == nsrc || throw(DimensionMismatch("need one src_waveform per source"))
+    max_iter >= 0 || throw(ArgumentError("max_iter must be nonnegative"))
+    param_stride = _parameter_stride(param_type)
 
     nx = configs[1].nx
     ny = configs[1].ny
+    size(param_mask) == (nx, ny) || throw(DimensionMismatch("param_mask must have size ($(nx), $(ny)); got $(size(param_mask))"))
+    for k in 1:nsrc
+        configs[k].nx == nx && configs[k].ny == ny || throw(DimensionMismatch("all source configurations must use the same grid dimensions"))
+        _validate_forward_inputs(configs[k], eps_inf_init, deps_map, tau_map, sigma_init, src_waveforms[k])
+        expected_obs_size = (configs[k].nt, length(configs[k].rx_ix))
+        size(obs_datas[k]) == expected_obs_size || throw(DimensionMismatch("obs_data $k must have size $expected_obs_size; got $(size(obs_datas[k]))"))
+    end
 
     # Pack initial parameters into flat vector
     x0 = Float64[]
@@ -464,7 +490,6 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
     idx_map = _build_idx_map(param_mask)
 
     # Multi-parameter stride and bounds
-    param_stride = (param_type == :both) ? 2 : 1
     n_cells = count(param_mask)
     lam_sig = lambda_sigma < 0 ? lambda : lambda_sigma  # default to lambda
     lam_d = lambda_damp
@@ -525,7 +550,12 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         loss_reg_sigma = 0.0
 
         # Tikhonov regularization (per-parameter for joint inversion)
-        if lambda > 0
+        if param_type == :sigma
+            if lam_sig > 0
+                loss_reg_sigma += lam_sig * tikhonov_penalty(x, idx_map, param_mask;
+                                                              stride=param_stride, param_idx=1)
+            end
+        elseif lambda > 0
             loss_reg_eps += lambda * tikhonov_penalty(x, idx_map, param_mask;
                                                       stride=param_stride, param_idx=1)
         end
@@ -543,7 +573,7 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
                         loss_reg_sigma += lam_d_sig * (x[k] - x0[k])^2
                     end
                 elseif param_type == :sigma
-                    loss_reg_sigma += lam_d * (x[k] - x0[k])^2
+                    loss_reg_sigma += lam_d_sig * (x[k] - x0[k])^2
                 else
                     loss_reg_eps += lam_d * (x[k] - x0[k])^2
                 end
@@ -589,7 +619,12 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
             end
         end
         # Add Tikhonov regularization gradient (per-parameter for joint inversion)
-        if lambda > 0
+        if param_type == :sigma
+            if lam_sig > 0
+                g .+= lam_sig .* tikhonov_gradient(x, idx_map, param_mask;
+                                                    stride=param_stride, param_idx=1)
+            end
+        elseif lambda > 0
             g .+= lambda .* tikhonov_gradient(x, idx_map, param_mask;
                                                stride=param_stride, param_idx=1)
         end
@@ -602,6 +637,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
             for k in 1:length(x)
                 if param_type == :both
                     ld = (k % 2 == 1) ? lam_d : lam_d_sig
+                elseif param_type == :sigma
+                    ld = lam_d_sig
                 else
                     ld = lam_d
                 end
@@ -623,10 +660,6 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
     terms = objective_terms(x)
     f_val = terms.total
 
-    # Track best iterate (FWI can have non-monotone convergence)
-    x_best = copy(x)
-    f_best = f_val
-
     push!(loss_history, f_val)
     push!(grad_norm_history, norm(grad))
     push!(loss_data_history, terms.data)
@@ -634,6 +667,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
     push!(loss_reg_sigma_history, terms.reg_sigma)
     push!(step_alpha_history, NaN)  # iteration 0 has no line-search step
     push!(line_search_backtracks, 0)
+    _invoke_iterate_callback(callback, 0, x, terms.total, terms.data,
+                             terms.reg_eps, terms.reg_sigma, norm(grad), NaN, 0)
 
     if verbose
         @printf("  iter %3d: loss = %.6e, |grad| = %.6e\n", 0, f_val, norm(grad))
@@ -741,12 +776,6 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         grad = grad_new
         f_val = f_new
 
-        # Update best iterate
-        if f_val < f_best
-            x_best = copy(x)
-            f_best = f_val
-        end
-
         push!(loss_history, f_val)
         push!(grad_norm_history, norm(grad))
         push!(loss_data_history, terms_new.data)
@@ -754,6 +783,9 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         push!(loss_reg_sigma_history, terms_new.reg_sigma)
         push!(step_alpha_history, alpha)
         push!(line_search_backtracks, n_backtracks)
+        _invoke_iterate_callback(callback, iter, x, terms_new.total, terms_new.data,
+                                 terms_new.reg_eps, terms_new.reg_sigma,
+                                 norm(grad), alpha, n_backtracks)
 
         if verbose
             @printf("  iter %3d: loss = %.6e, |grad| = %.6e, α = %.2e\n",
@@ -768,13 +800,8 @@ function run_fwi_multisource(configs::Vector{FDTDConfig},
         end
     end
 
-    if verbose && f_best < f_val
-        @printf("  Using best iterate (loss = %.6e vs final %.6e)\n", f_best, f_val)
-        flush(stdout)
-    end
-
-    # Unpack best parameters (not necessarily the final iterate)
-    x_final = f_best < f_val ? x_best : x
+    # Unpack the final iterate represented by the last history entry.
+    x_final = x
     eps_inf_est = copy(eps_inf_init)
     sigma_est = copy(sigma_init)
     idx = 1

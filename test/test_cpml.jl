@@ -174,4 +174,13 @@
         @test all(cpml.psi_ezx_x1 .== 0.0)
         @test all(cpml.psi_ezy_y1 .== 0.0)
     end
+
+    @testset "Right/top H-field compact indexing" begin
+        nx, ny, npml = 24, 20, 4
+        right_x = nx-npml:nx-1
+        top_y = ny-npml:ny-1
+
+        @test [GPRADFWI._right_pml_compact_index(i, nx, npml) for i in right_x] == collect(1:npml)
+        @test [GPRADFWI._right_pml_compact_index(j, ny, npml) for j in top_y] == collect(1:npml)
+    end
 end

@@ -16,6 +16,52 @@
 #   5. Add source
 #   6. Record receivers
 
+@inline function _parameter_stride(param_type::Symbol)
+    param_type === :eps_inf && return 1
+    param_type === :sigma && return 1
+    param_type === :both && return 2
+    throw(ArgumentError("param_type must be :eps_inf, :sigma, or :both; got $param_type"))
+end
+
+function _validate_forward_inputs(config::FDTDConfig,
+                                  eps_inf::AbstractMatrix,
+                                  deps::AbstractMatrix,
+                                  tau::AbstractMatrix,
+                                  sigma::AbstractMatrix,
+                                  src_waveform::AbstractVector)
+    nx, ny, nt = config.nx, config.ny, config.nt
+    expected_size = (nx, ny)
+    size(eps_inf) == expected_size || throw(DimensionMismatch("eps_inf must have size $expected_size; got $(size(eps_inf))"))
+    size(deps) == expected_size || throw(DimensionMismatch("deps must have size $expected_size; got $(size(deps))"))
+    size(tau) == expected_size || throw(DimensionMismatch("tau must have size $expected_size; got $(size(tau))"))
+    size(sigma) == expected_size || throw(DimensionMismatch("sigma must have size $expected_size; got $(size(sigma))"))
+    length(src_waveform) == nt || throw(DimensionMismatch("source waveform must have length $nt; got $(length(src_waveform))"))
+    length(config.rx_ix) == length(config.rx_iy) || throw(DimensionMismatch("rx_ix and rx_iy must have equal length"))
+    (1 <= config.source.ix <= nx && 1 <= config.source.iy <= ny) ||
+        throw(BoundsError(eps_inf, (config.source.ix, config.source.iy)))
+    all(i -> 1 <= i <= nx, config.rx_ix) || throw(ArgumentError("receiver x index is outside 1:$nx"))
+    all(j -> 1 <= j <= ny, config.rx_iy) || throw(ArgumentError("receiver y index is outside 1:$ny"))
+    (0 <= config.cpml.npml && 2 * config.cpml.npml < min(nx, ny)) ||
+        throw(ArgumentError("npml must be nonnegative and smaller than half the minimum grid dimension"))
+    return nothing
+end
+
+@inline function _inject_source_debye!(Ez, Pz, dcoeffs, si, sj, source_value, cell_area)
+    delta_E = dcoeffs.cb[si, sj] * source_value / cell_area
+    Ez[si, sj] += delta_E
+    Pz[si, sj] += dcoeffs.c2[si, sj] * delta_E
+    return delta_E
+end
+
+@inline _right_pml_compact_index(index::Int, grid_size::Int, compact_size::Int) =
+    index - (grid_size - compact_size) + 1
+
+function _validate_snapshot_steps(snap_steps::AbstractVector{<:Integer}, nt::Int)
+    all(1 .<= snap_steps .<= nt) || throw(ArgumentError("snapshot steps must be in 1:$nt"))
+    allunique(snap_steps) || throw(ArgumentError("snapshot steps must be unique"))
+    return nothing
+end
+
 """
     run_forward!(config, eps_inf, deps, tau, sigma, src_waveform)
 
@@ -42,9 +88,7 @@ function run_forward!(config::FDTDConfig,
     dy = config.dy
     nt = config.nt
 
-    @assert size(eps_inf) == (nx, ny) "eps_inf must be $nx × $ny"
-    @assert size(deps) == (nx, ny) "deps must be $nx × $ny"
-    @assert length(src_waveform) == nt "source length must be $nt"
+    _validate_forward_inputs(config, eps_inf, deps, tau, sigma, src_waveform)
 
     # Initialize fields
     Ez = zeros(nx, ny)
@@ -79,7 +123,7 @@ function run_forward!(config::FDTDConfig,
         _update_E_debye!(Ez, Hx, Hy, Pz, dcoeffs, cpml, dt, dx, dy, nx, ny)
 
         # 3. Add source (soft source: additive injection into Ez)
-        Ez[si, sj] += dcoeffs.cb[si, sj] * src_waveform[n] / (dx * dy)
+        _inject_source_debye!(Ez, Pz, dcoeffs, si, sj, src_waveform[n], dx * dy)
 
         # 4. Record receivers
         for r in 1:nrx
@@ -107,7 +151,7 @@ function _update_H!(Hx, Hy, Ez, ch_dt_dx, ch_dt_dy, cpml, nx, ny)
                                      cpml.ch_y[j] * dEz
             Hx[i, j] -= ch_dt_dy * cpml.psi_hxy_y1[i, j]
         end
-        jj = j - (ny - size(cpml.psi_hxy_y2, 2))
+        jj = _right_pml_compact_index(j, ny, size(cpml.psi_hxy_y2, 2))
         if jj >= 1 && jj <= size(cpml.psi_hxy_y2, 2)
             cpml.psi_hxy_y2[i, jj] = cpml.bh_y[j] * cpml.psi_hxy_y2[i, jj] +
                                        cpml.ch_y[j] * dEz
@@ -126,7 +170,7 @@ function _update_H!(Hx, Hy, Ez, ch_dt_dx, ch_dt_dy, cpml, nx, ny)
                                       cpml.ch_x[i] * dEz
             Hy[i, j] += ch_dt_dx * cpml.psi_hyx_x1[i, j]
         end
-        ii = i - (nx - size(cpml.psi_hyx_x2, 1))
+        ii = _right_pml_compact_index(i, nx, size(cpml.psi_hyx_x2, 1))
         if ii >= 1 && ii <= size(cpml.psi_hyx_x2, 1)
             cpml.psi_hyx_x2[ii, j] = cpml.bh_x[i] * cpml.psi_hyx_x2[ii, j] +
                                        cpml.ch_x[i] * dEz
@@ -224,10 +268,8 @@ function run_forward_snapshots(config::FDTDConfig,
     dy = config.dy
     nt = config.nt
 
-    @assert size(eps_inf) == (nx, ny) "eps_inf must be $nx × $ny"
-    @assert size(deps) == (nx, ny) "deps must be $nx × $ny"
-    @assert length(src_waveform) == nt "source length must be $nt"
-    @assert all(1 .<= snap_steps .<= nt) "snap_steps must be in [1, nt]"
+    _validate_forward_inputs(config, eps_inf, deps, tau, sigma, src_waveform)
+    _validate_snapshot_steps(snap_steps, nt)
 
     # Initialize fields
     Ez = zeros(nx, ny)
@@ -267,7 +309,7 @@ function run_forward_snapshots(config::FDTDConfig,
     for n in 1:nt
         _update_H!(Hx, Hy, Ez, ch_dt_dx, ch_dt_dy, cpml, nx, ny)
         _update_E_debye!(Ez, Hx, Hy, Pz, dcoeffs, cpml, dt, dx, dy, nx, ny)
-        Ez[si, sj] += dcoeffs.cb[si, sj] * src_waveform[n] / (dx * dy)
+        _inject_source_debye!(Ez, Pz, dcoeffs, si, sj, src_waveform[n], dx * dy)
 
         for r in 1:nrx
             rec_data[n, r] = Ez[config.rx_ix[r], config.rx_iy[r]]
@@ -308,6 +350,14 @@ function forward_misfit(params_flat::Vector{Float64},
     ny = config.ny
 
     # Unpack parameters into material maps
+    param_stride = _parameter_stride(param_type)
+    _validate_forward_inputs(config, eps_inf_bg, deps_map, tau_map, sigma_bg, src_waveform)
+    size(param_mask) == (nx, ny) || throw(DimensionMismatch("param_mask must have size ($(nx), $(ny)); got $(size(param_mask))"))
+    expected_obs_size = (config.nt, length(config.rx_ix))
+    size(obs_data) == expected_obs_size || throw(DimensionMismatch("obs_data must have size $expected_obs_size; got $(size(obs_data))"))
+    expected_params = param_stride * count(param_mask)
+    length(params_flat) == expected_params || throw(DimensionMismatch("parameter vector must have length $expected_params for $param_type; got $(length(params_flat))"))
+
     eps_inf = copy(eps_inf_bg)
     sigma = copy(sigma_bg)
 
